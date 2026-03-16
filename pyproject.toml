@@ -13,11 +13,12 @@ dependencies = [
     "watchdog==4.0.0",
     "python-dotenv>=1.1.0",
     "ipykernel",
-    "azure-core",
-    "azure-search-documents",
-    "azure-storage-blob",
-    "azure-identity",
-    "aiohttp"
+    "langchain-text-splitters",
+    "pypdf",
+    "sentence-transformers",
+    "faiss-cpu",
+    "redis"
+    # If you have a GPU, replace "faiss-cpu" with "faiss"
 ]
 
 [tool.setuptools.packages.find]
