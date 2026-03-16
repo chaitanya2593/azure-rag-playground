@@ -220,3 +220,4 @@ __marimo__/
 .env
 /uv.lock
 /reasearch/
+/dump.rdb
