@@ -1,52 +1,36 @@
-from app.config import *
-from azure.core.credentials import AzureKeyCredential
-from azure.search.documents import SearchClient
-from azure.search.documents.models import VectorizableTextQuery
+import os
+import numpy as np
+import pickle
+from app.rag_search.faiss_index import FaissIndexer
+from app.rag_search.embedding import Embedder
+from app.file_processing import FAISS_DIR, EMBEDDINGS_DIR
 
-def hybrid_search(query, top_k=3, k_nearest_neighbors=50):
-    credential = AzureKeyCredential(AZURE_SEARCH_SERVICE_ADMIN_KEY)
-    search_client = SearchClient(
-        endpoint=AZURE_SEARCH_SERVICE_ENDPOINT,
-        credential=credential,
-        index_name=AZURE_SEARCH_SERVICE_INDEX_NAME
-    )
-    vector_query = VectorizableTextQuery(
-        text=query,
-        k_nearest_neighbors=k_nearest_neighbors,
-        fields="contentVector",
-        weight=1
-    )
-    results = search_client.search(
-        search_text=query,
-        vector_queries=[vector_query] ,
-        select=["title", "content"],
-        top=top_k
-    )
-    return list(results)
 
-def semantic_hybrid_search(query, top_k=3, k_nearest_neighbors=50, tags=None):
-    credential = AzureKeyCredential(AZURE_SEARCH_SERVICE_ADMIN_KEY)
-    search_client = SearchClient(
-        endpoint=AZURE_SEARCH_SERVICE_ENDPOINT,
-        credential=credential,
-        index_name=AZURE_SEARCH_SERVICE_INDEX_NAME
-    )
-    vector_query = VectorizableTextQuery(
-        text=query,
-        k_nearest_neighbors=k_nearest_neighbors,
-        fields="contentVector",
-        weight=1
-    )
-
-    results = search_client.search(
-        query_type="semantic",
-        semantic_configuration_name=SEMANTIC_CONFIG_NAME,
-        scoring_profile=SCORING_PROFILE_NAME,
-        scoring_parameters=["tags-beach, 'United States'"],
-        search_text=query,
-        vector_queries=[vector_query],
-        select=["title", "content"],
-        top=top_k
-    )
-    print("Semantic Hybrid Search Results:" + str("".join([item for item in results])))
-    return sorted(list(results), key=lambda x: x['@search.score'], reverse=True)
+def semantic_hybrid_search(query, top_k=3, k_nearest_neighbors=3, context_limit= 3):
+    """
+    Semantic search using FAISS and sentence-transformers.
+    : param query: User query string.
+    : param top_k: Number of top results to return.
+    : param k_nearest_neighbors: Number of nearest neighbors to retrieve from FAISS for each index.
+    : context_limit: Number of chunks to return per document to avoid overwhelming the user.
+    Returns top_k most similar chunks for the query.
+    """
+    # Find all available FAISS indices
+    indices = [f for f in os.listdir(FAISS_DIR) if f.endswith('_faiss.index')]
+    if not indices:
+        return []
+    embedder = Embedder()
+    query_embedding = embedder.model.encode([query])[0]
+    results = []
+    for index_file in indices:
+        doc_name = index_file.replace('_faiss.index', '')
+        index = FaissIndexer.load_index(doc_name)
+        # Load chunk metadata
+        meta_path = os.path.join(EMBEDDINGS_DIR, f'{doc_name}_chunks.pkl')
+        with open(meta_path, 'rb') as f:
+            chunks = pickle.load(f)
+        _, I = index.search(np.array([query_embedding]), k_nearest_neighbors)
+        for idx in I[0][:top_k]:
+            if idx < len(chunks):
+                results.append({"title": doc_name, "content": chunks[idx]})
+    return results[:context_limit]
